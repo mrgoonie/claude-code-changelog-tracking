@@ -1,0 +1,127 @@
+name: Monitor Claude Code Changelog
+
+on:
+  schedule:
+    # Chạy mỗi 1 giờ
+    - cron: '0 */1 * * *'
+  workflow_dispatch: # Cho phép chạy manual
+
+jobs:
+  check-changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install requests
+      
+      - name: Check for changelog updates
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python << 'EOF'
+          import requests
+          import json
+          import os
+          import re
+          from datetime import datetime
+
+          # Fetch changelog từ Claude Code repo
+          changelog_url = "https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md"
+          response = requests.get(changelog_url)
+          
+          if response.status_code != 200:
+              print(f"Failed to fetch changelog: {response.status_code}")
+              exit(1)
+          
+          changelog_content = response.text
+          
+          # Lấy version mới nhất (giả sử format ## version)
+          version_match = re.search(r'^## ([\d.]+)(.*)$', changelog_content, re.MULTILINE)
+          
+          if not version_match:
+              print("Could not find version in changelog")
+              exit(1)
+          
+          latest_version = version_match.group(1)
+          
+          # Đọc version đã lưu (nếu có)
+          version_file = "last_changelog_version.txt"
+          try:
+              with open(version_file, 'r') as f:
+                  last_version = f.read().strip()
+          except FileNotFoundError:
+              last_version = None
+          
+          print(f"Latest version: {latest_version}")
+          print(f"Last checked version: {last_version}")
+          
+          # Nếu có version mới
+          if last_version != latest_version:
+              # Trích xuất nội dung changelog của version mới nhất
+              changelog_sections = re.split(r'^## ', changelog_content, flags=re.MULTILINE)
+              
+              if len(changelog_sections) > 1:
+                  latest_changes = changelog_sections[1].strip()
+                  
+                  # Lấy tối đa 1900 ký tự cho Discord (limit 2000)
+                  if len(latest_changes) > 1900:
+                      latest_changes = latest_changes[:1900] + "..."
+                  
+                  # Gửi đến Discord
+                  webhook_url = os.environ.get('DISCORD_WEBHOOK_URL')
+                  
+                  if webhook_url:
+                      embed = {
+                          "embeds": [{
+                              "title": f"🚀 Claude Code {latest_version} Released!",
+                              "description": f"```markdown\n{latest_changes}\n```",
+                              "color": 0x00ff00,  # Green
+                              "url": "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md",
+                              "timestamp": datetime.utcnow().isoformat(),
+                              "footer": {
+                                  "text": "Claude Code Changelog Monitor"
+                              }
+                          }]
+                      }
+                      
+                      discord_response = requests.post(
+                          webhook_url,
+                          json=embed,
+                          headers={"Content-Type": "application/json"}
+                      )
+                      
+                      if discord_response.status_code == 204:
+                          print("✅ Successfully sent to Discord")
+                      else:
+                          print(f"❌ Failed to send to Discord: {discord_response.status_code}")
+                          print(discord_response.text)
+                  
+                  # Lưu version mới
+                  with open(version_file, 'w') as f:
+                      f.write(latest_version)
+                  
+                  print(f"✅ Updated version file to {latest_version}")
+              else:
+                  print("❌ Could not extract changelog content")
+          else:
+              print("ℹ️ No new version detected")
+          
+          EOF
+      
+      - name: Commit version file if changed
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add last_changelog_version.txt || true
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update last checked changelog version"
+          git push || true
