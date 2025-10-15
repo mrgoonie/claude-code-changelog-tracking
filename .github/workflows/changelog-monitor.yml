@@ -3,7 +3,7 @@ name: Monitor Claude Code Changelog
 on:
   schedule:
     # Chạy mỗi 1 giờ
-    - cron: '0 */1 * * *'
+    - cron: '0 * * * *'
   workflow_dispatch: # Cho phép chạy manual
 
 jobs:
