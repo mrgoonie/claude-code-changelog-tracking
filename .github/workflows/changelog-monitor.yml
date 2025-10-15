@@ -6,6 +6,9 @@ on:
     - cron: '0 * * * *'
   workflow_dispatch: # Cho phép chạy manual
 
+permissions:
+  contents: write
+
 jobs:
   check-changelog:
     runs-on: ubuntu-latest
@@ -13,6 +16,7 @@ jobs:
       - name: Checkout current repo
         uses: actions/checkout@v4
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
       
       - name: Setup Python
